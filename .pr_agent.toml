@@ -1,0 +1,76 @@
+[config]
+model = "deepseek/deepseek-v4-pro"
+fallback_models = ["deepseek/deepseek-v4-flash"]
+# deepseek-v4 is newer than the token table shipped with pr-agent, so its
+# context size has to be stated explicitly.
+custom_model_max_tokens = 128000
+
+# custom_model_max_tokens alone does not raise the budget: max_model_tokens
+# caps it independently and defaults to 32000, which a large diff plus the call
+# graph fills quickly. deepseek-v4 carries far more, and context has measured
+# as the cheap part - with it the model reasons less, not more.
+max_model_tokens = 128000
+
+# 10 is the hard ceiling in pr_processing.py; anything larger is silently
+# capped, so it is stated honestly here rather than wished for.
+patch_extra_lines_before = 10
+patch_extra_lines_after = 8
+max_extra_lines_before_dynamic_context = 30
+
+[pr_description]
+# Post the walkthrough as a comment. Rewriting a contributor's own pull request
+# description is an intrusion; the same content in a comment is not.
+publish_description_as_comment = true
+publish_description_as_comment_persistent = true
+enable_pr_diagram = true
+
+# The model sometimes labels a node inside a link line instead of declaring it
+# first, and then reuses the same id with a different label further down.
+# GitHub answers that with "Unable to render rich display". Restating the rule
+# as a hard constraint, because upstream's sanitize_diagram does not catch it.
+extra_instructions = """
+For changes_diagram, declare every node on its own line first, each id exactly
+once, then write only the links. Never put a bracketed label on a link line,
+and never use an id twice with different text. Keep labels short and free of
+parentheses and slashes.
+"""
+
+[pr_reviewer]
+require_score_review = false
+require_can_be_split_review = false
+persistent_comment = true
+final_update_message = false
+# The finding-state tracker in v0.45 blocks its own persistent comment, which
+# also suppresses the "Preparing review..." placeholder - on a review that runs
+# for minutes that is the only sign anything is happening.
+persistent_finding_state = false
+
+extra_instructions = """
+This is enigma2, the set-top box GUI used by openATV: Python 3 with a C++ core,
+running on embedded Linux receivers with limited RAM and no swap.
+
+ruff, pylint and SonarCloud already run on every pull request. Do not report
+formatting, import order, unused variables, line length or anything else a
+linter catches - those findings are noise.
+
+Weight these enigma2-specific risks highly:
+- behaviour that changes for all receivers when the pull request targets one
+- broken references to screens, skin elements, config entries or service types
+- user-visible strings added, changed or removed without the matching .po keys
+- changes to service handling, zapping, recording or timers that silently break
+  another backend or tuner type
+- resource use that matters on an embedded box: unbounded caches, leaked timers
+  or callbacks, blocking I/O on the main loop
+- API changes that break plugins relying on the previous signature
+- changed on-disk formats, cache file names or paths without a migration, which
+  silently discard existing user data on update
+- an added early return or changed guard that skips teardown a later path still
+  depends on: a reader left running, a timer not stopped, a handle not freed
+- reordered start/stop or open/close calls in the decoder, demux and service
+  state machines
+
+Report what the diff itself shows, and say plainly what breaks and when.
+Do not speculate about code you cannot see: if a finding depends on an
+assumption about a caller outside the diff, name that assumption instead of
+presenting it as fact.
+"""
