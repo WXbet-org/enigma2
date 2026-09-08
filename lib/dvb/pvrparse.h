@@ -85,6 +85,14 @@ public:
 	void commit();
 	size_t getAccessPointCount() const
 	{
+		/*
+		 * NOTE: this count includes EXTRAPOLATED access points. While a stream
+		 * is scrambled, processPacket() cannot read a PTS and instead adds one
+		 * access point per second timed by CLOCK_MONOTONIC. Those entries carry
+		 * a plausible timestamp but no decodable picture, and they are not
+		 * distinguishable here from access points found at a real I-frame.
+		 * A rising count therefore does NOT mean the stream is decodable.
+		 */
 		return m_access_points.size()
 		     + m_streamtime_access_points.size();
 	}
@@ -124,6 +132,16 @@ public:
 	void setPid(int pid, iDVBTSRecorder::timing_pid_type pidtype, int streamtype);
 	int getLastPTS(pts_t &last_pts);
 	int getFirstPTS(pts_t &first_pts);
+	/*
+	 * Number of transport stream continuity errors seen on the timing PID.
+	 * Only counted for stream types where wantPacket() delivers every packet
+	 * (MPEG-2 and HEVC); always 0 for H.264 and UNKNOWN, where the parser only
+	 * sees PUSI packets and the counter sequence has holes by construction.
+	 * Reset by setPid(). Unlike the access point count this is a genuine
+	 * data-integrity signal: lost packets perturb the continuity counter,
+	 * failed descrambling does not.
+	 */
+	unsigned int getCCErrors() const { return m_cc_errors; }
 	void enableAccessPoints(bool enable) { m_enable_accesspoints = enable; }
 private:
 	unsigned char m_pkt[192];

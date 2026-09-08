@@ -1162,26 +1162,48 @@ int eMPEGStreamParserTS::processPacket(const unsigned char *pkt, off_t offset)
 
 	pkt += m_header_offset;
 
-	/* HEVC-only continuity tracking: keep MPEG-2/H.264 hot paths log-free. */
-	if (m_streamtype == eDVBVideo::H265_HEVC)
+	/*
+	 * Continuity tracking.
+	 *
+	 * Only enabled for MPEG-2 and HEVC, because those are the stream types for
+	 * which wantPacket() returns every packet on the timing PID. For H.264 and
+	 * UNKNOWN only PUSI packets are delivered here, so the counter sequence has
+	 * holes by construction and every packet would look like an error.
+	 */
+	if (m_streamtype == eDVBVideo::MPEG2 || m_streamtype == eDVBVideo::H265_HEVC)
 	{
+		const bool is_hevc = (m_streamtype == eDVBVideo::H265_HEVC);
 		int cc = pkt[3] & 0x0F;
 		bool has_adaptation = (pkt[3] & 0x20) != 0;
-		if (has_adaptation && pkt[4] > 0 && (pkt[5] & 0x80))
+		bool broken = false;
+
+		if (has_adaptation && pkt[4] > 0 && (pkt[5] & 0x80)) /* discontinuity_indicator */
 		{
 			m_last_cc_valid = false;
-			resetHEVCTail();
-			m_hevc_last_ap_pts_valid = false;
+			broken = true;
 		}
 		if (m_last_cc_valid)
 		{
 			int expected = (m_last_cc + 1) & 0x0F;
+			/* cc == m_last_cc is a legal duplicate packet, not an error. */
 			if (cc != expected && cc != m_last_cc)
 			{
 				++m_cc_errors;
-				resetHEVCTail();
-				m_hevc_last_ap_pts_valid = false;
+				broken = true;
 			}
+		}
+		if (broken && is_hevc)
+		{
+			/*
+			 * Packets were lost or the stream was spliced. Everything derived
+			 * from the previous packets is now suspect, INCLUDING the current
+			 * access unit's PTS: the PUSI packet that starts the next access
+			 * unit may be among the lost ones, and continuing to hand
+			 * m_hevc_current_pts to scanHEVCNalUnits() would attribute the
+			 * previous access unit's timestamp to a new access point.
+			 * Drop the whole HEVC parser state, not just the tail.
+			 */
+			resetHEVCParserState();
 		}
 		m_last_cc       = cc;
 		m_last_cc_valid = true;
