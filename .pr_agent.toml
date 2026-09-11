@@ -1,0 +1,117 @@
+[config]
+model = "anthropic/claude-sonnet-5"
+# A fallback runs when the first choice is unavailable, not when it is too
+# weak, so it steps down rather than up - a stronger model here would quietly
+# multiply the bill on every hiccup. The last one is a different company, so
+# that an outage at Anthropic still leaves a review rather than none.
+fallback_models = ["anthropic/claude-haiku-4-5-20251001", "deepseek/deepseek-v4-pro"]
+
+# max_model_tokens caps the budget independently of what the model can carry,
+# and defaults to 32000 - which a large diff plus the call graph fills quickly.
+# Context has measured as the cheap part: with it the model reasons less, not
+# more. Well below what sonnet-5 offers, deliberately, so a runaway diff cannot
+# turn into a runaway bill.
+max_model_tokens = 128000
+
+# 10 is the hard ceiling in pr_processing.py; anything larger is silently
+# capped, so it is stated honestly here rather than wished for.
+patch_extra_lines_before = 10
+patch_extra_lines_after = 8
+max_extra_lines_before_dynamic_context = 30
+
+[pr_description]
+# The walkthrough goes into the pull request description, where a reader looks
+# for it. That was an intrusion while describe ran on every pull request by
+# itself; now it happens only when a maintainer presses the button, which is
+# something they could do by hand anyway. The author's own text is not lost:
+# it is kept under a "User description" heading, and a second run reads it back
+# out of there rather than nesting.
+enable_pr_diagram = true
+
+# The model sometimes labels a node inside a link line instead of declaring it
+# first, and then reuses the same id with a different label further down.
+# GitHub answers that with "Unable to render rich display". Restating the rule
+# as a hard constraint, because upstream's sanitize_diagram does not catch it.
+extra_instructions = """
+For changes_diagram, declare every node on its own line first, each id exactly
+once, then write only the links. Never put a bracketed label on a link line,
+and never use an id twice with different text. Keep labels short and free of
+parentheses and slashes.
+
+Draw only what moves at run time: a call, or data passed from one place to the
+next. A remark in a comment about another function is not an edge, however
+closely the two are related in meaning. Drawing those produces arrows that run
+against the flow and close cycles the layout cannot resolve, and it tells the
+reader that something happens which does not.
+
+An edge never describes what the change did. "replaces", "renamed", "moved" and
+"now calls instead" are facts about the diff, and the diff is already shown
+underneath; the diagram is there to show how the code behaves once the change
+is in.
+
+Declare a node only if it appears in a link. A box with nothing attached to it
+says nothing and only takes up room.
+"""
+
+[pr_code_suggestions]
+# Keep the summary table, and additionally put the strong suggestions into the
+# diff itself as committable blocks, where a maintainer can accept one without
+# retyping it. Six is where the one genuinely useful suggestion measured on this
+# repository sat; raise it if the files-changed tab starts to feel crowded.
+dual_publishing_score_threshold = 6
+
+[pr_reviewer]
+require_score_review = false
+require_can_be_split_review = false
+persistent_comment = true
+final_update_message = false
+# The finding-state tracker in v0.45 blocks its own persistent comment, which
+# also suppresses the "Preparing review..." placeholder - on a review that runs
+# for minutes that is the only sign anything is happening.
+persistent_finding_state = false
+
+extra_instructions = """
+This is enigma2, the set-top box GUI used by openATV: Python 3 with a C++ core,
+running on embedded Linux receivers with limited RAM and no swap.
+
+ruff, pylint and SonarCloud already run on every pull request. Do not report
+formatting, import order, unused variables, line length or anything else a
+linter catches - those findings are noise.
+
+Weight these enigma2-specific risks highly:
+- behaviour that changes for all receivers when the pull request targets one
+- broken references to screens, skin elements, config entries or service types
+- user-visible strings added, changed or removed without the matching .po keys
+- changes to service handling, zapping, recording or timers that silently break
+  another backend or tuner type
+- resource use that matters on an embedded box: unbounded caches, leaked timers
+  or callbacks, blocking I/O on the main loop
+- API changes that break plugins relying on the previous signature
+- changed on-disk formats, cache file names or paths without a migration, which
+  silently discard existing user data on update
+- an added early return or changed guard that skips teardown a later path still
+  depends on: a reader left running, a timer not stopped, a handle not freed
+- reordered start/stop or open/close calls in the decoder, demux and service
+  state machines
+
+When a change documents a limitation or hazard of an existing function without
+changing its behaviour, check every caller named in the repository context
+against that limitation. A comment written to warn about something is evidence
+the author found a real trap, and the callers are where it springs.
+
+Report what the diff itself shows, and say plainly what breaks and when.
+Do not speculate about code you cannot see: if a finding depends on an
+assumption about a caller outside the diff, name that assumption instead of
+presenting it as fact.
+
+Before reporting that a step is missing - a reset that never happens, a call
+that is never made, a cache entry that is never removed - search the rest of the
+diff for that step. It is regularly there: in another hunk, in another file of
+the same pull request, or a few lines above the passage you are reading. Follow
+every value the diff assigns to where the diff reads it again; a sentinel is
+often written precisely to force the call you are about to report as absent.
+This is the most common way a review of this repository has been wrong so far.
+State a missing-step finding only once the whole diff has failed to produce the
+step, and a maintainer will thank you for it - a wrong one costs them the time
+it takes to disprove it.
+"""
